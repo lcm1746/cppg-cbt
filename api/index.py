@@ -1,128 +1,59 @@
 from flask import Flask, render_template, request, jsonify
 import os
-import pandas as pd
 import random
 import json
+from openpyxl import load_workbook
 
 app = Flask(__name__)
 
-def extract_questions_from_csv(file_path):
-    """CSV 파일에서 문제 추출 (세트별로 분류)"""
-    try:
-        # CSV 파일 읽기
-        df = pd.read_csv(file_path, encoding='utf-8')
-        print(f"CSV 파일 읽기 완료: {len(df)} 행")
-        
-        questions_by_set = {}
-        
-        for index, row in df.iterrows():
-            question = {}
-            
-            # 세트 처리
-            if '세트' in df.columns:
-                set_num = int(row.get('세트', 1))
-            else:
-                set_num = 1
-                
-            # 문제 번호 처리
-            if '문제번호' in df.columns:
-                question['number'] = int(row.get('문제번호', index + 1))
-            else:
-                question['number'] = index + 1
-                
-            # 문제 내용 처리
-            if '문제' in df.columns:
-                question['text'] = str(row.get('문제', ''))
-            else:
-                question['text'] = str(row.iloc[0]) if len(row) > 0 else ''
-                
-            # 보기 처리
-            if '보기' in df.columns:
-                options_text = str(row.get('보기', ''))
-                options = []
-                for i in range(1, 6):
-                    option_pattern = f'{chr(9311 + i)}'
-                    if option_pattern in options_text:
-                        start = options_text.find(option_pattern)
-                        if i < 5:
-                            end = options_text.find(f'{chr(9311 + i + 1)}')
-                            if end == -1:
-                                end = len(options_text)
-                        else:
-                            end = len(options_text)
-                        option_text = options_text[start+1:end].strip()
-                        options.append(option_text)
-                    else:
-                        options.append(f"보기 {i}")
-                
-                while len(options) < 5:
-                    options.append(f"보기 {len(options) + 1}")
-            else:
-                options = ["보기 1", "보기 2", "보기 3", "보기 4", "보기 5"]
-            
-            question['options'] = options[:5]
-            
-            # 정답 처리
-            if '답안' in df.columns:
-                answer = str(row.get('답안', '1'))
-                answer_map = {'①': 0, '②': 1, '③': 2, '④': 3, '⑤': 4, '1': 0, '2': 1, '3': 2, '4': 3, '5': 4}
-                question['correct'] = answer_map.get(answer, 0)
-            else:
-                question['correct'] = 0
-                
-            # 해설 처리
-            if '해설' in df.columns:
-                question['answer'] = str(row.get('해설', ''))
-            else:
-                question['answer'] = f"문제 {question['number']}의 정답은 {question['options'][question['correct']]}입니다."
-            
-            # 세트별로 문제 분류
-            if set_num not in questions_by_set:
-                questions_by_set[set_num] = []
-            
-            # 빈 문제 제외
-            if question['text'].strip():
-                questions_by_set[set_num].append(question)
-        
-        return questions_by_set
-        
-    except Exception as e:
-        print(f"CSV 파일 처리 오류: {e}")
-        return None
-
 def extract_questions_from_excel(file_path):
-    """엑셀 파일에서 문제 추출 (세트별로 분류)"""
+    """openpyxl을 사용해서 엑셀 파일에서 문제 추출"""
     try:
-        # 엑셀 파일 읽기
-        df = pd.read_excel(file_path)
-        print(f"엑셀 파일 읽기 완료: {len(df)} 행")
+        # openpyxl로 엑셀 파일 읽기
+        workbook = load_workbook(filename=file_path, read_only=True)
+        worksheet = workbook.active
+        
+        print(f"엑셀 파일 읽기 완료")
         
         questions_by_set = {}
         
-        for index, row in df.iterrows():
+        # 헤더 행 찾기
+        headers = []
+        for row in worksheet.iter_rows(min_row=1, max_row=1, values_only=True):
+            headers = [str(cell) if cell else '' for cell in row]
+            break
+        
+        print(f"컬럼: {headers}")
+        
+        # 데이터 행 처리
+        for row_idx, row in enumerate(worksheet.iter_rows(min_row=2, values_only=True), start=2):
             question = {}
             
             # 세트 처리
-            if '세트' in df.columns:
-                set_num = int(row.get('세트', 1))
+            set_idx = headers.index('세트') if '세트' in headers else -1
+            if set_idx >= 0 and row[set_idx]:
+                set_num = int(row[set_idx])
             else:
                 set_num = 1
                 
             # 문제 번호 처리
-            if '문제번호' in df.columns:
-                question['number'] = int(row.get('문제번호', index + 1))
+            num_idx = headers.index('문제번호') if '문제번호' in headers else -1
+            if num_idx >= 0 and row[num_idx]:
+                question['number'] = int(row[num_idx])
             else:
-                question['number'] = index + 1
+                question['number'] = row_idx - 1
                 
             # 문제 내용 처리
-            if '문제' in df.columns:
-                question['text'] = str(row.get('문제', ''))
+            text_idx = headers.index('문제') if '문제' in headers else 0
+            if text_idx >= 0 and row[text_idx]:
+                question['text'] = str(row[text_idx])
             else:
-                question['text'] = str(row.iloc[0]) if len(row) > 0 else ''
+                question['text'] = str(row[0]) if row[0] else ''
                 
             # 보기 처리
-            if '보기' in df.columns:
-                options_text = str(row.get('보기', ''))
+            options_idx = headers.index('보기') if '보기' in headers else -1
+            if options_idx >= 0 and row[options_idx]:
+                options_text = str(row[options_idx])
                 options = []
                 for i in range(1, 6):
                     option_pattern = f'{chr(9311 + i)}'
@@ -147,16 +78,18 @@ def extract_questions_from_excel(file_path):
             question['options'] = options[:5]
             
             # 정답 처리
-            if '답안' in df.columns:
-                answer = str(row.get('답안', '1'))
+            answer_idx = headers.index('답안') if '답안' in headers else -1
+            if answer_idx >= 0 and row[answer_idx]:
+                answer = str(row[answer_idx])
                 answer_map = {'①': 0, '②': 1, '③': 2, '④': 3, '⑤': 4, '1': 0, '2': 1, '3': 2, '4': 3, '5': 4}
                 question['correct'] = answer_map.get(answer, 0)
             else:
                 question['correct'] = 0
                 
             # 해설 처리
-            if '해설' in df.columns:
-                question['answer'] = str(row.get('해설', ''))
+            explanation_idx = headers.index('해설') if '해설' in headers else -1
+            if explanation_idx >= 0 and row[explanation_idx]:
+                question['answer'] = str(row[explanation_idx])
             else:
                 question['answer'] = f"문제 {question['number']}의 정답은 {question['options'][question['correct']]}입니다."
             
@@ -168,6 +101,7 @@ def extract_questions_from_excel(file_path):
             if question['text'].strip():
                 questions_by_set[set_num].append(question)
         
+        workbook.close()
         return questions_by_set
         
     except Exception as e:
@@ -176,13 +110,9 @@ def extract_questions_from_excel(file_path):
 
 def load_questions_from_file():
     """CPPG 파일에서 문제 로드"""
-    # CSV 파일을 우선적으로 시도
     file_paths = [
-        "cppg_qa_final.csv",
         "cppg_qa_final.xlsx",
-        "../cppg_qa_final.csv",
         "../cppg_qa_final.xlsx",
-        "./cppg_qa_final.csv",
         "./cppg_qa_final.xlsx"
     ]
     
@@ -197,12 +127,7 @@ def load_questions_from_file():
         return None, None
     
     print(f"파일 로드 중: {file_path}")
-    
-    # 파일 확장자에 따라 처리 방법 선택
-    if file_path.endswith('.csv'):
-        questions_by_set = extract_questions_from_csv(file_path)
-    else:
-        questions_by_set = extract_questions_from_excel(file_path)
+    questions_by_set = extract_questions_from_excel(file_path)
     
     if questions_by_set:
         stats = {}
