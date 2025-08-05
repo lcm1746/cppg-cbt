@@ -241,7 +241,11 @@ def get_random_questions():
 
 # Vercel 서버리스 함수
 def handler(request, context):
-    return app(request, context)
+    with app.app_context():
+        return app(request, context)
+
+# Vercel에서 직접 실행할 수 있도록
+app.debug = False
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5004) 
